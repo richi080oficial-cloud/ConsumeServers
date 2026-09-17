@@ -1,7 +1,7 @@
 {
   "name": "ConsumeServers",
   "identifier": "consumeservers",
-  "version": "1.0.5",
+  "version": "1.0.7",
   "description": "Monitorea el consumo de CPU, RAM, red y uptime de cada servidor desde el panel de admin de Pterodactyl y apaga/suspende automaticamente el que supere un limite configurable.",
   "author": "Vexa Studio",
   "target": {

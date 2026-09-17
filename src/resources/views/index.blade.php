@@ -114,11 +114,18 @@
 
     <div class="row">
         <div class="col-xs-12">
-            <div class="box box-danger">
+            <div class="box box-danger" id="cs-top-box"
+                 data-refresh-url="{{ route('admin.extensions.consumeservers.data') }}"
+                 data-metric="{{ $metric }}" data-node-id="{{ $nodeId }}" data-limit="{{ $topLimit }}"
+                 data-metric-icon="{{ Units::icon($metric) }}">
                 <div class="box-header with-border">
                     <h3 class="box-title"><i class="fa fa-line-chart"></i> Servidores que mas consumen</h3>
                     <div class="box-tools">
-                        <span class="label label-default">
+                        <label class="cs-autorefresh-toggle" style="font-weight: normal; margin-right: 10px;">
+                            <input type="checkbox" id="cs-autorefresh" checked>
+                            Auto-actualizar cada <span id="cs-interval-label">10</span>s
+                        </label>
+                        <span class="label label-default" id="cs-generated-at" data-timestamp="{{ $generatedAt->timestamp }}">
                             <i class="fa fa-refresh"></i>
                             Actualizado {{ $generatedAt->diffForHumans() }}
                         </span>
@@ -176,17 +183,19 @@
                                 <th style="width: 190px;"></th>
                             </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="cs-top-body">
                             @forelse ($topServers as $index => $row)
                                 @php
                                     $value = $row['value'];
                                     $cpuRelative = $row['cpu_relative'] ?? null;
-                                    $barPercent = $metric === 'cpu' ? ($cpuRelative ?? min(100, $value)) : null;
-                                    $barPercent = $barPercent === null ? null : min(100, max(0, $barPercent));
+                                    $barPercent = $metric === 'cpu' ? Units::cpuBarPercent($value, $cpuRelative) : null;
                                     $barClass = $barPercent === null ? '' : ($barPercent >= 90 ? 'progress-bar-danger' : ($barPercent >= 60 ? 'progress-bar-warning' : 'progress-bar-success'));
+                                    $secondary = $metric === 'cpu'
+                                        ? ($cpuRelative !== null ? "{$cpuRelative}% de su limite de {$row['cpu_limit']}%" : 'sin limite asignado')
+                                        : (in_array($metric, ['memory', 'network']) ? Units::megabytes($value) : null);
                                 @endphp
-                                <tr>
-                                    <td>
+                                <tr data-server-id="{{ $row['server']->id }}" data-value="{{ $value }}">
+                                    <td class="cs-position">
                                         @if ($index === 0)
                                             <span class="label label-danger">#1</span>
                                         @else
@@ -206,24 +215,13 @@
                                     </td>
                                     <td>{{ $row['server']->node->name ?? 'N/A' }}</td>
                                     <td>
-                                        @if ($metric === 'cpu')
-                                            <strong>{{ $value }}%</strong>
-                                            @if ($cpuRelative !== null)
-                                                <span class="text-muted">({{ $cpuRelative }}% de su limite de {{ $row['cpu_limit'] }}%)</span>
-                                            @else
-                                                <span class="text-muted" title="El servidor no tiene limite de CPU asignado, por eso puede superar el 100% al usar varios nucleos.">(sin limite asignado)</span>
-                                            @endif
-                                        @else
-                                            <strong>{{ Units::humanize($metric, $value) }}</strong>
-                                            @if ($metric === 'memory' || $metric === 'network')
-                                                <span class="text-muted">({{ $value }} MB)</span>
-                                            @endif
+                                        <strong><span class="cs-value">{{ $value }}</span> <span class="cs-unit">{{ Units::shortUnit($metric) }}</span></strong>
+                                        @if ($secondary)
+                                            <span class="text-muted cs-secondary">({{ $secondary }})</span>
                                         @endif
-                                        @if ($barPercent !== null)
-                                            <div class="progress progress-xs" style="margin-top: 4px; margin-bottom: 0;">
-                                                <div class="progress-bar {{ $barClass }}" style="width: {{ $barPercent }}%;"></div>
-                                            </div>
-                                        @endif
+                                        <div class="progress progress-xs cs-bar-wrap" style="margin-top: 4px; margin-bottom: 0; {{ $barPercent === null ? 'visibility:hidden;' : '' }}">
+                                            <div class="progress-bar cs-bar {{ $barClass }}" style="width: {{ $barPercent ?? 0 }}%;"></div>
+                                        </div>
                                     </td>
                                     <td>
                                         <div class="btn-group">
@@ -430,6 +428,279 @@
                     updateHint();
                 });
             });
+        })();
+    </script>
+
+    <style>
+        #cs-top-body tr { transition: background-color 0.6s ease; }
+        #cs-top-body tr.cs-flash-up { background-color: rgba(221, 75, 57, 0.18); }
+        #cs-top-body tr.cs-flash-down { background-color: rgba(0, 166, 90, 0.18); }
+        #cs-top-body tr.cs-flash-new { background-color: rgba(0, 122, 204, 0.18); }
+        #cs-top-body .cs-value { display: inline-block; min-width: 1.5em; }
+        #cs-top-body .cs-bar-wrap { transition: opacity 0.3s ease; }
+        .cs-autorefresh-toggle input { margin-right: 4px; vertical-align: middle; }
+    </style>
+
+    <script>
+        window.CS_CSRF_FIELD = '<input type="hidden" name="_token" value="{{ csrf_token() }}">';
+
+        (function () {
+            var box = document.getElementById('cs-top-box');
+            if (!box) {
+                return;
+            }
+
+            var tbody = document.getElementById('cs-top-body');
+            var generatedAtLabel = document.getElementById('cs-generated-at');
+            var autoRefreshCheckbox = document.getElementById('cs-autorefresh');
+            var refreshUrl = box.dataset.refreshUrl;
+            var metricIcon = box.dataset.metricIcon;
+            var intervalMs = 10000;
+            var timer = null;
+
+            // --- "Actualizado hace X" en vivo, sin esperar al proximo poll ---
+            function tickAgo() {
+                if (!generatedAtLabel) return;
+                var ts = parseInt(generatedAtLabel.dataset.timestamp, 10);
+                if (!ts) return;
+                var diff = Math.max(0, Math.round(Date.now() / 1000) - ts);
+                var text = diff < 5 ? 'justo ahora' : (diff < 60 ? diff + 's' : Math.round(diff / 60) + 'min');
+                generatedAtLabel.innerHTML = '<i class="fa fa-refresh"></i> Actualizado hace ' + text;
+            }
+            setInterval(tickAgo, 1000);
+
+            // --- animacion de conteo del numero principal (sube o baja) ---
+            function animateValue(el, from, to, duration) {
+                if (from === to) {
+                    el.textContent = to;
+                    return;
+                }
+                var start = performance.now();
+                function step(now) {
+                    var progress = Math.min(1, (now - start) / duration);
+                    var eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+                    var current = Math.round(from + (to - from) * eased);
+                    el.textContent = current;
+                    if (progress < 1) {
+                        requestAnimationFrame(step);
+                    } else {
+                        el.textContent = to;
+                    }
+                }
+                requestAnimationFrame(step);
+            }
+
+            function flash(row, cls) {
+                row.classList.remove('cs-flash-up', 'cs-flash-down', 'cs-flash-new');
+                // fuerza reflow para que la transicion se vea aunque se repita la misma clase
+                void row.offsetWidth;
+                row.classList.add(cls);
+                setTimeout(function () {
+                    row.classList.remove(cls);
+                }, 900);
+            }
+
+            function buildRow(data) {
+                var tr = document.createElement('tr');
+                tr.dataset.serverId = data.server_id;
+                tr.dataset.value = data.value;
+
+                var ownerHtml = data.owner
+                    ? '<span title="' + (data.owner_email || '') + '">' + data.owner + '</span>'
+                    : '<span class="text-muted">N/A</span>';
+
+                var barStyle = data.bar_percent === null ? 'visibility:hidden;' : '';
+                var barWidth = data.bar_percent === null ? 0 : data.bar_percent;
+                var barClass = data.bar_class || '';
+
+                var secondaryHtml = data.secondary
+                    ? '<span class="text-muted cs-secondary">(' + data.secondary + ')</span>'
+                    : '';
+
+                tr.innerHTML =
+                    '<td class="cs-position">' + data.position + '</td>' +
+                    '<td><i class="fa ' + metricIcon + ' text-muted"></i> ' + escapeHtml(data.server_name) + '</td>' +
+                    '<td>' + ownerHtml + '</td>' +
+                    '<td>' + escapeHtml(data.node_name) + '</td>' +
+                    '<td><strong><span class="cs-value">' + data.value + '</span> <span class="cs-unit">' + data.unit + '</span></strong> ' +
+                        secondaryHtml +
+                        '<div class="progress progress-xs cs-bar-wrap" style="margin-top:4px;margin-bottom:0;' + barStyle + '">' +
+                            '<div class="progress-bar cs-bar ' + barClass + '" style="width:' + barWidth + '%;"></div>' +
+                        '</div>' +
+                    '</td>' +
+                    '<td>' +
+                        '<div class="btn-group">' +
+                            '<a href="' + data.view_url + '" class="btn btn-xs btn-default" title="Ver servidor"><i class="fa fa-eye"></i> Ver</a>' +
+                            '<a href="#nuevo-limite" class="btn btn-xs btn-primary preset-limit" data-server-id="' + data.server_id + '" data-metric="' + box.dataset.metric + '" title="Crear limite para este servidor"><i class="fa fa-plus"></i> Limite</a>' +
+                            '<form action="' + data.power_url + '" method="POST" onsubmit="return confirm(\'¿Apagar ' + escapeJs(data.server_name) + ' ahora mismo?\');" style="display:inline;">' +
+                                (window.CS_CSRF_FIELD || '') +
+                                '<button type="submit" class="btn btn-xs btn-danger" title="Apagar servidor"><i class="fa fa-power-off"></i> Apagar</button>' +
+                            '</form>' +
+                        '</div>' +
+                    '</td>';
+
+                bindPreset(tr.querySelector('.preset-limit'));
+
+                return tr;
+            }
+
+            function escapeHtml(str) {
+                var div = document.createElement('div');
+                div.textContent = str == null ? '' : str;
+                return div.innerHTML;
+            }
+
+            function escapeJs(str) {
+                return String(str == null ? '' : str).replace(/'/g, "\\'");
+            }
+
+            function bindPreset(link) {
+                if (!link) return;
+                link.addEventListener('click', function () {
+                    document.getElementById('new-limit-server').value = this.dataset.serverId;
+                    document.getElementById('new-limit-metric').value = this.dataset.metric;
+                    document.getElementById('new-limit-metric').dispatchEvent(new Event('change'));
+                });
+            }
+
+            function refresh() {
+                var params = new URLSearchParams({
+                    metric: box.dataset.metric,
+                    limit: box.dataset.limit
+                });
+                if (box.dataset.nodeId) {
+                    params.set('node_id', box.dataset.nodeId);
+                }
+
+                fetch(refreshUrl + '?' + params.toString(), {
+                    headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'},
+                    credentials: 'same-origin'
+                })
+                    .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+                    .then(applyUpdate)
+                    .catch(function () { /* silencioso: se reintenta en el proximo tick */ });
+            }
+
+            function applyUpdate(payload) {
+                if (generatedAtLabel) {
+                    generatedAtLabel.dataset.timestamp = Math.round(new Date(payload.generated_at).getTime() / 1000);
+                    tickAgo();
+                }
+
+                var existingRows = {};
+                Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-server-id]'), function (tr) {
+                    existingRows[tr.dataset.serverId] = tr;
+                });
+
+                // FLIP: posiciones actuales antes de reordenar/actualizar.
+                var firstRects = {};
+                Object.keys(existingRows).forEach(function (id) {
+                    firstRects[id] = existingRows[id].getBoundingClientRect();
+                });
+
+                var seenIds = {};
+                var previousRow = null;
+
+                payload.rows.forEach(function (data) {
+                    seenIds[data.server_id] = true;
+                    var row = existingRows[data.server_id];
+
+                    if (!row) {
+                        row = buildRow(data);
+                        flash(row, 'cs-flash-new');
+                    } else {
+                        var oldValue = parseFloat(row.dataset.value);
+                        var newValue = data.value;
+
+                        var valueEl = row.querySelector('.cs-value');
+                        if (valueEl) {
+                            animateValue(valueEl, oldValue, newValue, 700);
+                        }
+
+                        var secondaryEl = row.querySelector('.cs-secondary');
+                        if (data.secondary) {
+                            if (secondaryEl) {
+                                secondaryEl.textContent = '(' + data.secondary + ')';
+                            }
+                        } else if (secondaryEl) {
+                            secondaryEl.textContent = '';
+                        }
+
+                        var bar = row.querySelector('.cs-bar');
+                        var barWrap = row.querySelector('.cs-bar-wrap');
+                        if (bar && barWrap) {
+                            if (data.bar_percent === null) {
+                                barWrap.style.visibility = 'hidden';
+                            } else {
+                                barWrap.style.visibility = 'visible';
+                                bar.style.width = data.bar_percent + '%';
+                                bar.className = 'progress-bar cs-bar ' + (data.bar_class || '');
+                            }
+                        }
+
+                        var posCell = row.querySelector('.cs-position');
+                        if (posCell) {
+                            posCell.innerHTML = data.position === 1 ? '<span class="label label-danger">#1</span>' : data.position;
+                        }
+
+                        row.dataset.value = newValue;
+
+                        if (newValue > oldValue) {
+                            flash(row, 'cs-flash-up');
+                        } else if (newValue < oldValue) {
+                            flash(row, 'cs-flash-down');
+                        }
+                    }
+
+                    // Reordena en el DOM segun el orden que manda el servidor.
+                    if (previousRow) {
+                        previousRow.after(row);
+                    } else {
+                        tbody.prepend(row);
+                    }
+                    previousRow = row;
+                });
+
+                // Quita filas de servidores que ya no estan en el top N.
+                Object.keys(existingRows).forEach(function (id) {
+                    if (!seenIds[id]) {
+                        existingRows[id].remove();
+                    }
+                });
+
+                // FLIP: anima el desplazamiento de las filas que cambiaron de sitio.
+                Array.prototype.forEach.call(tbody.querySelectorAll('tr[data-server-id]'), function (tr) {
+                    var id = tr.dataset.serverId;
+                    var first = firstRects[id];
+                    if (!first) return;
+                    var last = tr.getBoundingClientRect();
+                    var deltaY = first.top - last.top;
+                    if (Math.abs(deltaY) < 1) return;
+                    tr.style.transition = 'none';
+                    tr.style.transform = 'translateY(' + deltaY + 'px)';
+                    requestAnimationFrame(function () {
+                        tr.style.transition = 'transform 0.4s ease';
+                        tr.style.transform = '';
+                    });
+                });
+            }
+
+            function scheduleNext() {
+                if (timer) clearTimeout(timer);
+                if (autoRefreshCheckbox && autoRefreshCheckbox.checked) {
+                    timer = setTimeout(function () {
+                        refresh();
+                        scheduleNext();
+                    }, intervalMs);
+                }
+            }
+
+            if (autoRefreshCheckbox) {
+                autoRefreshCheckbox.addEventListener('change', scheduleNext);
+            }
+
+            tickAgo();
+            scheduleNext();
         })();
     </script>
 @endsection

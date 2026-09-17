@@ -18,6 +18,7 @@ Route::middleware(['web', 'auth', AdminAuthenticate::class])
     ->name('admin.extensions.consumeservers.')
     ->group(function () {
         Route::get('/', [ConsumeServersController::class, 'index'])->name('index');
+        Route::get('/data', [ConsumeServersController::class, 'data'])->name('data');
         Route::post('/', [ConsumeServersController::class, 'store'])->name('store');
         Route::post('/check-now', [ConsumeServersController::class, 'checkNow'])->name('check-now');
         Route::put('/{limit}', [ConsumeServersController::class, 'update'])->name('update');
