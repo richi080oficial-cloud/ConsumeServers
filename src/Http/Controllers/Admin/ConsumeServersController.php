@@ -14,7 +14,11 @@ use Pterodactyl\Extensions\ConsumeServers\Support\Units;
 class ConsumeServersController extends Controller
 {
     protected const METRICS = ['cpu', 'memory', 'network', 'uptime'];
-    protected const CACHE_TTL = 20;
+
+    // El auto-refresco del navegador pide datos cada 3s (ver la vista), asi
+    // que el cache se renueva con esa misma cadencia para que se sienta en
+    // vivo de verdad y no solo "pida cada 3s pero muestre lo mismo 20s".
+    protected const CACHE_TTL = 4;
 
     public function index(Request $request, ResourceMonitorService $monitor)
     {

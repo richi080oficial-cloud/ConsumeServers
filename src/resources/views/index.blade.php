@@ -123,7 +123,7 @@
                     <div class="box-tools">
                         <label class="cs-autorefresh-toggle" style="font-weight: normal; margin-right: 10px;">
                             <input type="checkbox" id="cs-autorefresh" checked>
-                            Auto-actualizar cada <span id="cs-interval-label">10</span>s
+                            Auto-actualizar cada <span id="cs-interval-label">3</span>s
                         </label>
                         <span class="label label-default" id="cs-generated-at" data-timestamp="{{ $generatedAt->timestamp }}">
                             <i class="fa fa-refresh"></i>
@@ -196,35 +196,31 @@
                                 @endphp
                                 <tr data-server-id="{{ $row['server']->id }}" data-value="{{ $value }}">
                                     <td class="cs-position">
-                                        @if ($index === 0)
-                                            <span class="label label-danger">#1</span>
-                                        @else
-                                            {{ $index + 1 }}
-                                        @endif
+                                        <span class="cs-rank {{ $index === 0 ? 'cs-rank-top' : '' }}">{{ $index + 1 }}</span>
                                     </td>
                                     <td>
-                                        <i class="fa {{ Units::icon($metric) }} text-muted"></i>
-                                        {{ $row['server']->name }}
+                                        <span class="cs-server-icon"><i class="fa {{ Units::icon($metric) }}"></i></span>
+                                        <span class="cs-server-name">{{ $row['server']->name }}</span>
                                     </td>
                                     <td>
                                         @if ($row['server']->user)
-                                            <span title="{{ $row['server']->user->email }}">{{ $row['server']->user->username ?? $row['server']->user->email }}</span>
+                                            <span class="cs-owner" title="{{ $row['server']->user->email }}">{{ $row['server']->user->username ?? $row['server']->user->email }}</span>
                                         @else
                                             <span class="text-muted">N/A</span>
                                         @endif
                                     </td>
-                                    <td>{{ $row['server']->node->name ?? 'N/A' }}</td>
-                                    <td>
+                                    <td class="text-muted">{{ $row['server']->node->name ?? 'N/A' }}</td>
+                                    <td class="cs-consumo">
                                         <strong><span class="cs-value">{{ $value }}</span> <span class="cs-unit">{{ Units::shortUnit($metric) }}</span></strong>
                                         @if ($secondary)
                                             <span class="text-muted cs-secondary">({{ $secondary }})</span>
                                         @endif
-                                        <div class="progress progress-xs cs-bar-wrap" style="margin-top: 4px; margin-bottom: 0; {{ $barPercent === null ? 'visibility:hidden;' : '' }}">
+                                        <div class="progress cs-bar-wrap" style="{{ $barPercent === null ? 'visibility:hidden;' : '' }}">
                                             <div class="progress-bar cs-bar {{ $barClass }}" style="width: {{ $barPercent ?? 0 }}%;"></div>
                                         </div>
                                     </td>
                                     <td>
-                                        <div class="btn-group">
+                                        <div class="btn-group cs-actions">
                                             <a href="{{ url('/admin/servers/view/' . $row['server']->id) }}" class="btn btn-xs btn-default" title="Ver servidor">
                                                 <i class="fa fa-eye"></i> Ver
                                             </a>
@@ -432,12 +428,60 @@
     </script>
 
     <style>
+        /* Caja del ranking: mas aire, esquinas suaves, ligera sombra. */
+        #cs-top-box { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.15); }
+        #cs-top-box .box-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+        #cs-top-box .box-tools { display: flex; align-items: center; gap: 10px; float: none; position: static; }
+
+        /* Filtros: separacion clara respecto a la tabla y entre botones. */
+        #cs-top-box .box-body > .row { margin-bottom: 4px; }
+        #cs-top-box .form-group { margin-bottom: 12px; }
+
+        /* Fila con puesto/servidor/owner/nodo/consumo/acciones. */
         #cs-top-body tr { transition: background-color 0.6s ease; }
-        #cs-top-body tr.cs-flash-up { background-color: rgba(221, 75, 57, 0.18); }
-        #cs-top-body tr.cs-flash-down { background-color: rgba(0, 166, 90, 0.18); }
-        #cs-top-body tr.cs-flash-new { background-color: rgba(0, 122, 204, 0.18); }
-        #cs-top-body .cs-value { display: inline-block; min-width: 1.5em; }
-        #cs-top-body .cs-bar-wrap { transition: opacity 0.3s ease; }
+        #cs-top-body td { vertical-align: middle !important; padding-top: 12px !important; padding-bottom: 12px !important; }
+        #cs-top-body tr:hover { background-color: rgba(255,255,255,0.04); }
+        #cs-top-body tr.cs-flash-up { background-color: rgba(221, 75, 57, 0.22) !important; }
+        #cs-top-body tr.cs-flash-down { background-color: rgba(0, 166, 90, 0.22) !important; }
+        #cs-top-body tr.cs-flash-new { background-color: rgba(0, 122, 204, 0.22) !important; }
+
+        /* Puesto en el ranking: circulo numerado en vez de texto plano. */
+        .cs-rank {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 26px; height: 26px; border-radius: 50%;
+            background: rgba(255,255,255,0.08); font-weight: 600; font-size: 12px;
+        }
+        .cs-rank-top { background: #dd4b39; color: #fff; box-shadow: 0 0 0 3px rgba(221,75,57,0.25); }
+
+        /* Icono de la metrica junto al nombre del servidor, en un circulo. */
+        .cs-server-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 24px; height: 24px; border-radius: 50%;
+            background: rgba(255,255,255,0.08); margin-right: 4px; font-size: 11px;
+        }
+        .cs-server-name { font-weight: 600; }
+
+        /* Owner como "pill" en vez de texto suelto. */
+        .cs-owner {
+            display: inline-block; padding: 2px 9px; border-radius: 12px;
+            background: rgba(255,255,255,0.07); font-size: 12px;
+        }
+
+        /* Numero de consumo grande y la barra debajo, mas gruesa y redondeada. */
+        .cs-consumo .cs-value { display: inline-block; min-width: 1.6em; font-size: 15px; }
+        .cs-consumo .cs-unit { font-size: 12px; opacity: 0.8; }
+        .cs-consumo .cs-secondary { font-size: 11px; margin-left: 2px; }
+        #cs-top-body .cs-bar-wrap {
+            height: 7px; border-radius: 4px; margin-top: 6px; margin-bottom: 0;
+            background-color: rgba(255,255,255,0.08); transition: opacity 0.3s ease;
+        }
+        #cs-top-body .cs-bar { border-radius: 4px; transition: width 0.5s ease; }
+
+        /* Botones de accion mas juntos y consistentes. */
+        .cs-actions.btn-group { display: inline-flex; gap: 4px; }
+        .cs-actions .btn { border-radius: 4px !important; }
+
+        .cs-autorefresh-toggle { display: inline-flex; align-items: center; }
         .cs-autorefresh-toggle input { margin-right: 4px; vertical-align: middle; }
     </style>
 
@@ -455,7 +499,7 @@
             var autoRefreshCheckbox = document.getElementById('cs-autorefresh');
             var refreshUrl = box.dataset.refreshUrl;
             var metricIcon = box.dataset.metricIcon;
-            var intervalMs = 10000;
+            var intervalMs = 3000;
             var timer = null;
 
             // --- "Actualizado hace X" en vivo, sin esperar al proximo poll ---
@@ -506,7 +550,7 @@
                 tr.dataset.value = data.value;
 
                 var ownerHtml = data.owner
-                    ? '<span title="' + (data.owner_email || '') + '">' + data.owner + '</span>'
+                    ? '<span class="cs-owner" title="' + (data.owner_email || '') + '">' + data.owner + '</span>'
                     : '<span class="text-muted">N/A</span>';
 
                 var barStyle = data.bar_percent === null ? 'visibility:hidden;' : '';
@@ -518,18 +562,18 @@
                     : '';
 
                 tr.innerHTML =
-                    '<td class="cs-position">' + data.position + '</td>' +
-                    '<td><i class="fa ' + metricIcon + ' text-muted"></i> ' + escapeHtml(data.server_name) + '</td>' +
+                    '<td class="cs-position"><span class="cs-rank ' + (data.position === 1 ? 'cs-rank-top' : '') + '">' + data.position + '</span></td>' +
+                    '<td><span class="cs-server-icon"><i class="fa ' + metricIcon + '"></i></span> <span class="cs-server-name">' + escapeHtml(data.server_name) + '</span></td>' +
                     '<td>' + ownerHtml + '</td>' +
-                    '<td>' + escapeHtml(data.node_name) + '</td>' +
-                    '<td><strong><span class="cs-value">' + data.value + '</span> <span class="cs-unit">' + data.unit + '</span></strong> ' +
+                    '<td class="text-muted">' + escapeHtml(data.node_name) + '</td>' +
+                    '<td class="cs-consumo"><strong><span class="cs-value">' + data.value + '</span> <span class="cs-unit">' + data.unit + '</span></strong> ' +
                         secondaryHtml +
-                        '<div class="progress progress-xs cs-bar-wrap" style="margin-top:4px;margin-bottom:0;' + barStyle + '">' +
+                        '<div class="progress cs-bar-wrap" style="' + barStyle + '">' +
                             '<div class="progress-bar cs-bar ' + barClass + '" style="width:' + barWidth + '%;"></div>' +
                         '</div>' +
                     '</td>' +
                     '<td>' +
-                        '<div class="btn-group">' +
+                        '<div class="btn-group cs-actions">' +
                             '<a href="' + data.view_url + '" class="btn btn-xs btn-default" title="Ver servidor"><i class="fa fa-eye"></i> Ver</a>' +
                             '<a href="#nuevo-limite" class="btn btn-xs btn-primary preset-limit" data-server-id="' + data.server_id + '" data-metric="' + box.dataset.metric + '" title="Crear limite para este servidor"><i class="fa fa-plus"></i> Limite</a>' +
                             '<form action="' + data.power_url + '" method="POST" onsubmit="return confirm(\'¿Apagar ' + escapeJs(data.server_name) + ' ahora mismo?\');" style="display:inline;">' +
@@ -640,7 +684,7 @@
 
                         var posCell = row.querySelector('.cs-position');
                         if (posCell) {
-                            posCell.innerHTML = data.position === 1 ? '<span class="label label-danger">#1</span>' : data.position;
+                            posCell.innerHTML = '<span class="cs-rank ' + (data.position === 1 ? 'cs-rank-top' : '') + '">' + data.position + '</span>';
                         }
 
                         row.dataset.value = newValue;
