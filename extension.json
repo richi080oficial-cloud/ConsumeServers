@@ -1,0 +1,23 @@
+{
+  "name": "ConsumeServers",
+  "identifier": "consumeservers",
+  "version": "1.0.0",
+  "description": "Monitorea el consumo de CPU, RAM, red y uptime de cada servidor desde el panel de admin de Pterodactyl y apaga/suspende automaticamente el que supere un limite configurable.",
+  "author": "Vexa Studios",
+  "target": {
+    "panel": ">=1.11.0 <2.0.0",
+    "php": ">=8.1",
+    "laravel": "^10.0"
+  },
+  "requires_blueprint": false,
+  "install": {
+    "target_dir": "app/Extensions/ConsumeServers",
+    "provider": "Pterodactyl\\Extensions\\ConsumeServers\\Providers\\ConsumeServersServiceProvider"
+  },
+  "commands": [
+    "consumeservers install",
+    "consumeservers update",
+    "consumeservers uninstall",
+    "consumeservers status"
+  ]
+}

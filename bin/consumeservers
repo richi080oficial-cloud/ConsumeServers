@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# Comando global de ConsumeServers.
+# Delega en el gestor (/opt/consumeservers/consumeservers.sh) si está
+# disponible y, en su defecto, en el instalador guardado por la propia
+# extensión.
+#
+set -Eeuo pipefail
+
+SRC_DIR="${SRC_DIR:-/opt/consumeservers}"
+STATE_DIR="/usr/local/share/consumeservers"
+MANAGER="${SRC_DIR}/consumeservers.sh"
+INSTALLER="${STATE_DIR}/source/scripts/addon-install.sh"
+
+LOCAL_MANAGER="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/consumeservers.sh"
+
+if [ -f "$MANAGER" ]; then
+    exec bash "$MANAGER" "$@"
+fi
+
+if [ -f "$LOCAL_MANAGER" ]; then
+    exec bash "$LOCAL_MANAGER" "$@"
+fi
+
+if [ -f "$INSTALLER" ]; then
+    exec bash "$INSTALLER" "$@"
+fi
+
+echo "[consumeservers] No se encontró el gestor en ${MANAGER} ni el instalador en ${INSTALLER}." >&2
+echo "[consumeservers] Reinstala con:" >&2
+echo "  bash <(curl -sSL https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/ConsumeServers/main/install.sh) install" >&2
+exit 1
