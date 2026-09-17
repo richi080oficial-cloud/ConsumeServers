@@ -21,28 +21,66 @@ class ResourceMonitorService
     /**
      * Evaluate every enabled limit and apply the configured action when a
      * server has gone over its threshold.
+     *
+     * Devuelve un informe por limite (no solo escribe en el log) para poder
+     * mostrarlo en el panel cuando se lanza manualmente con el boton
+     * "Revisar limites ahora" — asi se puede diagnosticar sin depender de
+     * si el cron del panel esta corriendo `schedule:run` o no.
+     *
+     * @return array<int, array{limit: ConsumeServerLimit, server: string, current: int, threshold: int, triggered: bool, error: string|null}>
      */
-    public function checkAll(): void
+    public function checkAll(): array
     {
+        $report = [];
+
         ConsumeServerLimit::query()
             ->where('enabled', true)
             ->with('server')
-            ->chunk(50, function ($limits) {
+            ->chunk(50, function ($limits) use (&$report) {
                 foreach ($limits as $limit) {
-                    if (!$limit->server || $limit->server->isSuspended()) {
+                    if (!$limit->server) {
+                        $report[] = $this->reportRow($limit, null, null, false, 'El servidor ya no existe.');
+
+                        continue;
+                    }
+
+                    if ($limit->server->isSuspended()) {
+                        $report[] = $this->reportRow($limit, $limit->server->name, null, false, 'El servidor ya esta suspendido, se omite.');
+
                         continue;
                     }
 
                     try {
-                        $this->evaluate($limit);
+                        [$currentValue, $triggered] = $this->evaluate($limit);
+                        $report[] = $this->reportRow($limit, $limit->server->name, $currentValue, $triggered, null);
                     } catch (\Throwable $exception) {
-                        Log::warning("[ConsumeServers] Could not evaluate limit #{$limit->id}: {$exception->getMessage()}");
+                        Log::error("[ConsumeServers] Could not evaluate limit #{$limit->id}: {$exception->getMessage()}", [
+                            'exception' => $exception,
+                        ]);
+                        $report[] = $this->reportRow($limit, $limit->server->name, null, false, $exception->getMessage());
                     }
                 }
             });
+
+        return $report;
     }
 
-    protected function evaluate(ConsumeServerLimit $limit): void
+    protected function reportRow(ConsumeServerLimit $limit, ?string $serverName, ?int $currentValue, bool $triggered, ?string $error): array
+    {
+        return [
+            'limit' => $limit,
+            'server' => $serverName ?? "#{$limit->server_id}",
+            'current' => $currentValue,
+            'threshold' => $limit->threshold_value,
+            'triggered' => $triggered,
+            'error' => $error,
+        ];
+    }
+
+    /**
+     * @return array{0: int, 1: bool} [valor actual, si se disparo la accion]
+     */
+    protected function evaluate(ConsumeServerLimit $limit): array
     {
         $server = $limit->server;
         $utilization = $this->readUtilization($server);
@@ -54,9 +92,13 @@ class ResourceMonitorService
             default => 0,
         };
 
-        if ($currentValue >= $limit->threshold_value) {
+        $triggered = $currentValue >= $limit->threshold_value;
+
+        if ($triggered) {
             $this->applyAction($limit, $currentValue);
         }
+
+        return [$currentValue, $triggered];
     }
 
     /**
@@ -68,7 +110,7 @@ class ResourceMonitorService
      */
     public function topConsumers(string $metric, ?int $nodeId = null, int $limit = 25): array
     {
-        $query = Server::query()->with('node');
+        $query = Server::query()->with(['node', 'user']);
 
         if ($nodeId) {
             $query->where('node_id', $nodeId);
@@ -83,15 +125,38 @@ class ResourceMonitorService
                 continue;
             }
 
+            $value = $this->extractValue($metric, $utilization);
+
+            // El CPU que reporta Wings es "absoluto": un proceso usando 3
+            // nucleos completos marca ~300%, no un error. Se calcula tambien
+            // el porcentaje relativo al limite de CPU asignado al servidor
+            // (columna "cpu", 0 = ilimitado) para poder mostrarlo de forma
+            // que tenga sentido en pantalla en vez de un numero suelto.
+            $cpuLimit = (int) ($server->cpu ?? 0);
+            $cpuRelative = $metric === 'cpu' && $cpuLimit > 0
+                ? (int) round(($value / $cpuLimit) * 100)
+                : null;
+
             $results[] = [
                 'server' => $server,
-                'value' => $this->extractValue($metric, $utilization),
+                'value' => $value,
+                'cpu_limit' => $cpuLimit,
+                'cpu_relative' => $cpuRelative,
             ];
         }
 
         usort($results, fn ($a, $b) => $b['value'] <=> $a['value']);
 
         return array_slice($results, 0, $limit);
+    }
+
+    /**
+     * Apaga un servidor al instante desde la interfaz (boton "Apagar" del
+     * ranking), sin pasar por un limite configurado.
+     */
+    public function powerOff(Server $server): void
+    {
+        $this->daemonServerRepository->setServer($server)->setPowerState('stop');
     }
 
     protected function readUtilization(Server $server): array

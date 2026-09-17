@@ -19,7 +19,12 @@ Route::middleware(['web', 'auth', AdminAuthenticate::class])
     ->group(function () {
         Route::get('/', [ConsumeServersController::class, 'index'])->name('index');
         Route::post('/', [ConsumeServersController::class, 'store'])->name('store');
+        Route::post('/check-now', [ConsumeServersController::class, 'checkNow'])->name('check-now');
         Route::put('/{limit}', [ConsumeServersController::class, 'update'])->name('update');
         Route::patch('/{limit}/toggle', [ConsumeServersController::class, 'toggle'])->name('toggle');
         Route::delete('/{limit}', [ConsumeServersController::class, 'destroy'])->name('destroy');
+
+        // Apagado inmediato desde el ranking de "mas consumen" (no requiere
+        // un limite configurado, es una accion manual del admin).
+        Route::post('/servers/{server}/power', [ConsumeServersController::class, 'power'])->name('servers.power');
     });

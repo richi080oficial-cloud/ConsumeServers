@@ -70,12 +70,39 @@ class ConsumeServersController extends Controller
         ]);
     }
 
+    /**
+     * Ejecuta la revision de todos los limites al instante, sin esperar al
+     * minuto del cron. Sirve tanto para forzar el apagado/suspension ya
+     * mismo como para diagnosticar por que un limite "no salta": si aqui
+     * SI se dispara, el problema es que el cron `schedule:run` del panel no
+     * esta corriendo; si tampoco se dispara aqui, el problema esta en el
+     * limite o en la lectura de Wings (mira la columna "Error").
+     */
+    public function checkNow(ResourceMonitorService $monitor)
+    {
+        $report = $monitor->checkAll();
+
+        return redirect()->route('admin.extensions.consumeservers.index')
+            ->with('checkReport', $report);
+    }
+
     public function toggle(ConsumeServerLimit $limit)
     {
         $limit->update(['enabled' => !$limit->enabled]);
 
         return redirect()->route('admin.extensions.consumeservers.index')
             ->with('success', 'Limite ' . ($limit->enabled ? 'activado' : 'desactivado') . '.');
+    }
+
+    /**
+     * Apagado inmediato desde el boton de la tabla de "mas consumen": no
+     * crea ni depende de ningun limite configurado.
+     */
+    public function power(Request $request, Server $server, ResourceMonitorService $monitor)
+    {
+        $monitor->powerOff($server);
+
+        return redirect()->back()->with('success', "Orden de apagado enviada a {$server->name}.");
     }
 
     public function store(Request $request)

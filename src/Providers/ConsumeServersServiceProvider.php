@@ -42,14 +42,20 @@ class ConsumeServersServiceProvider extends ServiceProvider
 
         // Registra el chequeo periodico sin tocar app/Console/Kernel.php. Se
         // apoya en el cron "php artisan schedule:run" que Pterodactyl ya
-        // trae configurado de fabrica.
+        // trae configurado de fabrica (si ese cron no esta puesto, ESTE
+        // chequeo automatico nunca corre — usa el boton "Revisar limites
+        // ahora" del panel, o `php artisan consumeservers:manage check` a
+        // mano, para comprobarlo sin depender del cron).
+        //
+        // Sin ->runInBackground(): si algo falla, el error queda en
+        // storage/logs/consumeservers.log en vez de perderse en un proceso
+        // en segundo plano sin salida capturada.
         $this->app->booted(function () {
             /** @var Schedule $schedule */
             $schedule = $this->app->make(Schedule::class);
             $schedule->command('consumeservers:manage check')
                 ->everyMinute()
-                ->withoutOverlapping()
-                ->runInBackground();
+                ->appendOutputTo(storage_path('logs/consumeservers.log'));
         });
     }
 }

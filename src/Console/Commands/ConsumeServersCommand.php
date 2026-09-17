@@ -40,7 +40,25 @@ class ConsumeServersCommand extends Command
             return self::FAILURE;
         }
 
-        $monitor->checkAll();
+        $report = $monitor->checkAll();
+
+        if (empty($report)) {
+            $this->line('No hay limites activos que revisar.');
+
+            return self::SUCCESS;
+        }
+
+        $this->table(
+            ['Servidor', 'Metrica', 'Actual', 'Umbral', 'Disparado', 'Error'],
+            array_map(fn ($row) => [
+                $row['server'],
+                $row['limit']->metric,
+                $row['current'] ?? '-',
+                $row['threshold'],
+                $row['triggered'] ? 'SI' : 'no',
+                $row['error'] ?? '',
+            ], $report)
+        );
 
         return self::SUCCESS;
     }

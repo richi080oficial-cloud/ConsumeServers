@@ -17,6 +17,60 @@
         <div class="alert alert-success"><i class="fa fa-check"></i> {{ session('success') }}</div>
     @endif
 
+    @if (session('checkReport'))
+        @php $report = session('checkReport'); @endphp
+        <div class="box box-solid box-info">
+            <div class="box-header with-border">
+                <h3 class="box-title"><i class="fa fa-stethoscope"></i> Resultado de "Revisar limites ahora"</h3>
+            </div>
+            <div class="box-body table-responsive no-padding">
+                @if (empty($report))
+                    <p class="text-muted" style="padding: 10px;">No hay ningun limite activo que revisar.</p>
+                @else
+                    <table class="table table-condensed">
+                        <thead>
+                        <tr>
+                            <th>Servidor</th>
+                            <th>Metrica</th>
+                            <th>Valor actual</th>
+                            <th>Umbral</th>
+                            <th>Disparado</th>
+                            <th>Error</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach ($report as $row)
+                            <tr>
+                                <td>{{ $row['server'] }}</td>
+                                <td>{{ Units::label($row['limit']->metric) }}</td>
+                                <td>{{ $row['current'] === null ? '—' : Units::humanize($row['limit']->metric, $row['current']) }}</td>
+                                <td>{{ Units::humanize($row['limit']->metric, $row['threshold']) }}</td>
+                                <td>
+                                    @if ($row['triggered'])
+                                        <span class="label label-danger">SI, se aplico la accion</span>
+                                    @else
+                                        <span class="label label-default">no</span>
+                                    @endif
+                                </td>
+                                <td class="text-red">{{ $row['error'] }}</td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                @endif
+            </div>
+            <div class="box-footer">
+                <p class="text-muted" style="margin: 0;">
+                    <i class="fa fa-info-circle"></i>
+                    Si aqui un limite SI se dispara pero el servidor sigue sin apagarse solo, el chequeo automatico de cada
+                    minuto probablemente no esta corriendo: revisa que el cron
+                    <code>* * * * * php artisan schedule:run</code> este puesto en el servidor, o mira
+                    <code>storage/logs/consumeservers.log</code> y <code>storage/logs/laravel-{{ now()->format('Y-m-d') }}.log</code>.
+                </p>
+            </div>
+        </div>
+    @endif
+
     <div class="row">
         <div class="col-md-4 col-sm-6 col-xs-12">
             <div class="small-box bg-aqua">
@@ -44,6 +98,17 @@
                 </div>
                 <div class="icon"><i class="fa fa-bolt"></i></div>
             </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-xs-12 text-right" style="margin-bottom: 10px;">
+            <form action="{{ route('admin.extensions.consumeservers.check-now') }}" method="POST" style="display:inline;">
+                @csrf
+                <button type="submit" class="btn btn-warning">
+                    <i class="fa fa-stethoscope"></i> Revisar limites ahora
+                </button>
+            </form>
         </div>
     </div>
 
@@ -105,16 +170,19 @@
                             <tr>
                                 <th style="width: 40px;">#</th>
                                 <th>Servidor</th>
+                                <th>Owner</th>
                                 <th>Nodo</th>
-                                <th style="width: 280px;">Consumo</th>
-                                <th style="width: 110px;"></th>
+                                <th style="width: 260px;">Consumo</th>
+                                <th style="width: 190px;"></th>
                             </tr>
                             </thead>
                             <tbody>
                             @forelse ($topServers as $index => $row)
                                 @php
                                     $value = $row['value'];
-                                    $barPercent = $metric === 'cpu' ? min(100, $value) : null;
+                                    $cpuRelative = $row['cpu_relative'] ?? null;
+                                    $barPercent = $metric === 'cpu' ? ($cpuRelative ?? min(100, $value)) : null;
+                                    $barPercent = $barPercent === null ? null : min(100, max(0, $barPercent));
                                     $barClass = $barPercent === null ? '' : ($barPercent >= 90 ? 'progress-bar-danger' : ($barPercent >= 60 ? 'progress-bar-warning' : 'progress-bar-success'));
                                 @endphp
                                 <tr>
@@ -129,11 +197,27 @@
                                         <i class="fa {{ Units::icon($metric) }} text-muted"></i>
                                         {{ $row['server']->name }}
                                     </td>
+                                    <td>
+                                        @if ($row['server']->user)
+                                            <span title="{{ $row['server']->user->email }}">{{ $row['server']->user->username ?? $row['server']->user->email }}</span>
+                                        @else
+                                            <span class="text-muted">N/A</span>
+                                        @endif
+                                    </td>
                                     <td>{{ $row['server']->node->name ?? 'N/A' }}</td>
                                     <td>
-                                        <strong>{{ Units::humanize($metric, $value) }}</strong>
-                                        @if ($metric === 'memory' || $metric === 'network')
-                                            <span class="text-muted">({{ $value }} MB)</span>
+                                        @if ($metric === 'cpu')
+                                            <strong>{{ $value }}%</strong>
+                                            @if ($cpuRelative !== null)
+                                                <span class="text-muted">({{ $cpuRelative }}% de su limite de {{ $row['cpu_limit'] }}%)</span>
+                                            @else
+                                                <span class="text-muted" title="El servidor no tiene limite de CPU asignado, por eso puede superar el 100% al usar varios nucleos.">(sin limite asignado)</span>
+                                            @endif
+                                        @else
+                                            <strong>{{ Units::humanize($metric, $value) }}</strong>
+                                            @if ($metric === 'memory' || $metric === 'network')
+                                                <span class="text-muted">({{ $value }} MB)</span>
+                                            @endif
                                         @endif
                                         @if ($barPercent !== null)
                                             <div class="progress progress-xs" style="margin-top: 4px; margin-bottom: 0;">
@@ -142,15 +226,27 @@
                                         @endif
                                     </td>
                                     <td>
-                                        <a href="#nuevo-limite" class="btn btn-xs btn-primary preset-limit"
-                                           data-server-id="{{ $row['server']->id }}" data-metric="{{ $metric }}">
-                                            <i class="fa fa-plus"></i> Limite
-                                        </a>
+                                        <div class="btn-group">
+                                            <a href="{{ url('/admin/servers/view/' . $row['server']->id) }}" class="btn btn-xs btn-default" title="Ver servidor">
+                                                <i class="fa fa-eye"></i> Ver
+                                            </a>
+                                            <a href="#nuevo-limite" class="btn btn-xs btn-primary preset-limit"
+                                               data-server-id="{{ $row['server']->id }}" data-metric="{{ $metric }}" title="Crear limite para este servidor">
+                                                <i class="fa fa-plus"></i> Limite
+                                            </a>
+                                            <form action="{{ route('admin.extensions.consumeservers.servers.power', $row['server']) }}" method="POST"
+                                                  onsubmit="return confirm('¿Apagar {{ $row['server']->name }} ahora mismo?');" style="display:inline;">
+                                                @csrf
+                                                <button type="submit" class="btn btn-xs btn-danger" title="Apagar servidor">
+                                                    <i class="fa fa-power-off"></i> Apagar
+                                                </button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="5" class="text-center text-muted">
+                                    <td colspan="6" class="text-center text-muted">
                                         <i class="fa fa-exclamation-triangle"></i>
                                         No se pudo leer el consumo de ningun servidor (revisa que Wings responda).
                                     </td>
