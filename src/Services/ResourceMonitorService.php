@@ -4,6 +4,7 @@ namespace Pterodactyl\Extensions\ConsumeServers\Services;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Pterodactyl\Models\Server;
 use Pterodactyl\Repositories\Wings\DaemonServerRepository;
 use Pterodactyl\Services\Servers\SuspensionService;
 use Pterodactyl\Extensions\ConsumeServers\Models\ConsumeServerLimit;
@@ -44,20 +45,71 @@ class ResourceMonitorService
     protected function evaluate(ConsumeServerLimit $limit): void
     {
         $server = $limit->server;
-        $stats = $this->daemonServerRepository->setServer($server)->getDetails();
-        $utilization = $stats['utilization'] ?? [];
+        $utilization = $this->readUtilization($server);
 
         $currentValue = match ($limit->metric) {
-            'cpu' => (int) round($utilization['cpu_absolute'] ?? 0),
-            'memory' => (int) round(($utilization['memory_bytes'] ?? 0) / 1024 / 1024),
-            'network' => $this->accumulate($limit, $this->networkBytesToMb($utilization)),
-            'uptime' => $this->accumulate($limit, (int) round(($utilization['uptime'] ?? 0) / 1000 / 60)),
+            'cpu', 'memory' => $this->extractValue($limit->metric, $utilization),
+            'network' => $this->accumulate($limit, $this->extractValue('network', $utilization)),
+            'uptime' => $this->accumulate($limit, $this->extractValue('uptime', $utilization)),
             default => 0,
         };
 
         if ($currentValue >= $limit->threshold_value) {
             $this->applyAction($limit, $currentValue);
         }
+    }
+
+    /**
+     * Ranking de los servidores que mas consumen ahora mismo para una
+     * metrica dada (uso instantaneo reportado por Wings, no la ventana
+     * acumulada que usan los limites de red/uptime).
+     *
+     * @return array<int, array{server: Server, value: int}>
+     */
+    public function topConsumers(string $metric, ?int $nodeId = null, int $limit = 25): array
+    {
+        $query = Server::query()->with('node');
+
+        if ($nodeId) {
+            $query->where('node_id', $nodeId);
+        }
+
+        $results = [];
+
+        foreach ($query->cursor() as $server) {
+            try {
+                $utilization = $this->readUtilization($server);
+            } catch (\Throwable $exception) {
+                continue;
+            }
+
+            $results[] = [
+                'server' => $server,
+                'value' => $this->extractValue($metric, $utilization),
+            ];
+        }
+
+        usort($results, fn ($a, $b) => $b['value'] <=> $a['value']);
+
+        return array_slice($results, 0, $limit);
+    }
+
+    protected function readUtilization(Server $server): array
+    {
+        $stats = $this->daemonServerRepository->setServer($server)->getDetails();
+
+        return $stats['utilization'] ?? [];
+    }
+
+    protected function extractValue(string $metric, array $utilization): int
+    {
+        return match ($metric) {
+            'cpu' => (int) round($utilization['cpu_absolute'] ?? 0),
+            'memory' => (int) round(($utilization['memory_bytes'] ?? 0) / 1024 / 1024),
+            'network' => $this->networkBytesToMb($utilization),
+            'uptime' => (int) round(($utilization['uptime'] ?? 0) / 1000 / 60),
+            default => 0,
+        };
     }
 
     protected function networkBytesToMb(array $utilization): int
