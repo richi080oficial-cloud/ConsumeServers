@@ -27,6 +27,14 @@ class AdminSidebarLink
 {
     private const MARKER = '<!-- consumeservers:sidebar -->';
 
+    /**
+     * Cabecera de categoria compartida por todos los plugins de Vexa
+     * Studios: si ya esta en el HTML (puesta por este mismo middleware en
+     * otro plugin, o por el parche Blade estatico de cualquiera de ellos),
+     * no se vuelve a anadir.
+     */
+    private const CATEGORY_HEADER = '<li class="header">VEXA STUDIO</li>';
+
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
@@ -53,7 +61,10 @@ class AdminSidebarLink
             return $response;
         }
 
-        $updated = substr($html, 0, $close) . $this->entry($request) . substr($html, $close);
+        $insertion = str_contains($html, self::CATEGORY_HEADER) ? '' : self::CATEGORY_HEADER . "\n";
+        $insertion .= $this->entry($request);
+
+        $updated = substr($html, 0, $close) . $insertion . substr($html, $close);
 
         $response->setContent($updated);
 
@@ -104,7 +115,6 @@ class AdminSidebarLink
             : url('/admin/extensions/consumeservers');
 
         return "\n" . self::MARKER . "\n"
-            . '<li class="header">CONSUMESERVERS</li>' . "\n"
             . '<li' . $active . '>' . "\n"
             . '    <a href="' . e($url) . '">' . "\n"
             . '        <i class="fa fa-tachometer"></i> <span>Consume Servers</span>' . "\n"

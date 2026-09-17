@@ -113,8 +113,16 @@ function insertSidebarEntry(string $contents): ?string
     // o tema de terceros) sin colores propios que puedan quedar ilegibles.
     // El href usa Route::has() para no romper /admin con una
     // RouteNotFoundException si el provider aun no esta registrado.
+    //
+    // La cabecera "VEXA STUDIO" es compartida entre todos los plugins de
+    // Vexa Studio: se imprime una sola vez por peticion via un guard en
+    // $GLOBALS, sin importar cuantos de estos plugins esten instalados ni en
+    // que orden se hayan parcheado.
     $block = wrap($indent, [
-        $inner . '<li class="header">CONSUMESERVERS</li>',
+        $inner . '@if (empty($GLOBALS[\'__vexastudios_sidebar_header\']))',
+        $inner . '    <li class="header">VEXA STUDIO</li>',
+        $inner . '    @php($GLOBALS[\'__vexastudios_sidebar_header\'] = true)',
+        $inner . '@endif',
         $inner . '<li class="{{ request()->is(\'admin/extensions/consumeservers\', \'admin/extensions/consumeservers/*\') ? \'active\' : \'\' }}">',
         $inner . '    <a href="{{ \Illuminate\Support\Facades\Route::has(\'admin.extensions.consumeservers.index\') ? route(\'admin.extensions.consumeservers.index\') : url(\'/admin/extensions/consumeservers\') }}">',
         $inner . '        <i class="fa fa-tachometer"></i> <span>Consume Servers</span>',
