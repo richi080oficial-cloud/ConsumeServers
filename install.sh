@@ -3,11 +3,11 @@
 # ConsumeServers — instalador público
 # Descarga el gestor (consumeservers.sh) desde el repositorio y lo ejecuta.
 #
-#   bash <(curl -sSL https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/ConsumeServers/main/install.sh) install
+#   bash <(curl -sSL https://raw.githubusercontent.com/richi080oficial-cloud/ConsumeServers/main/install.sh) install
 #
 set -Eeuo pipefail
 
-_OWNER="${REPO_OWNER:-<YOUR_GITHUB_USER>}"
+_OWNER="${REPO_OWNER:-richi080oficial-cloud}"
 _REPO="${REPO_NAME:-ConsumeServers}"
 _BRANCH="${REPO_BRANCH:-main}"
 _FILE="consumeservers.sh"

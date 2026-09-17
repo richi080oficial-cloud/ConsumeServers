@@ -28,5 +28,5 @@ fi
 
 echo "[consumeservers] No se encontró el gestor en ${MANAGER} ni el instalador en ${INSTALLER}." >&2
 echo "[consumeservers] Reinstala con:" >&2
-echo "  bash <(curl -sSL https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/ConsumeServers/main/install.sh) install" >&2
+echo "  bash <(curl -sSL https://raw.githubusercontent.com/richi080oficial-cloud/ConsumeServers/main/install.sh) install" >&2
 exit 1

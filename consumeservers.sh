@@ -8,7 +8,7 @@
 #
 set -Eeuo pipefail
 
-REPO_URL="${REPO_URL:-${CONSUMESERVERS_REPO:-https://github.com/<YOUR_GITHUB_USER>/ConsumeServers.git}}"
+REPO_URL="${REPO_URL:-${CONSUMESERVERS_REPO:-https://github.com/richi080oficial-cloud/ConsumeServers.git}}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 SRC_DIR="${SRC_DIR:-/opt/consumeservers}"
 INSTALLER_REL="scripts/addon-install.sh"

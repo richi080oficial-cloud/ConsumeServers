@@ -22,7 +22,7 @@ Ambos parches se revierten con exactitud durante la desinstalación. Además hay
 ## Instalación
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/<YOUR_GITHUB_USER>/ConsumeServers/main/install.sh) install
+bash <(curl -sSL https://raw.githubusercontent.com/richi080oficial-cloud/ConsumeServers/main/install.sh) install
 ```
 
 El instalador detecta la ruta del panel automáticamente (`/var/www/pterodactyl`, `/var/www/panel`, etc.). Si está en otro sitio:
@@ -84,7 +84,7 @@ Cada minuto, por cada límite habilitado:
 
 ## Antes de subir esto a tu propio GitHub
 
-Sustituye `<YOUR_GITHUB_USER>` por tu usuario/repositorio real en:
+Sustituye `richi080oficial-cloud` por tu usuario/repositorio real en:
 
 - [install.sh](install.sh)
 - [consumeservers.sh](consumeservers.sh)
