@@ -13,6 +13,7 @@ use Pterodactyl\Extensions\ConsumeServers\Services\ResourceMonitorService;
 class ConsumeServersController extends Controller
 {
     protected const METRICS = ['cpu', 'memory', 'network', 'uptime'];
+    protected const CACHE_TTL = 20;
 
     public function index(Request $request, ResourceMonitorService $monitor)
     {
@@ -34,10 +35,27 @@ class ConsumeServersController extends Controller
         // Cachea el ranking unos segundos: consultar Wings servidor por
         // servidor en cada carga de la pagina seria demasiado lento con
         // muchos servidores, y no hace falta que el dato sea al segundo.
+        // "Actualizar" en la interfaz simplemente borra esta clave antes de
+        // volver a pedir los datos.
         $cacheKey = "consumeservers.top.{$metric}.{$nodeId}.{$topLimit}";
-        $topServers = Cache::remember($cacheKey, 20, function () use ($monitor, $metric, $nodeId, $topLimit) {
+
+        if ($request->boolean('refresh')) {
+            Cache::forget($cacheKey);
+        }
+
+        $generatedAt = Cache::get($cacheKey . '.time');
+        $topServers = Cache::remember($cacheKey, self::CACHE_TTL, function () use ($monitor, $metric, $nodeId, $topLimit, $cacheKey) {
+            Cache::put($cacheKey . '.time', now(), self::CACHE_TTL);
+
             return $monitor->topConsumers($metric, $nodeId, $topLimit);
         });
+        $generatedAt = $generatedAt ?? Cache::get($cacheKey . '.time') ?? now();
+
+        $stats = [
+            'total' => ConsumeServerLimit::query()->count(),
+            'active' => ConsumeServerLimit::query()->where('enabled', true)->count(),
+            'triggered_today' => ConsumeServerLimit::query()->whereDate('triggered_at', now()->toDateString())->count(),
+        ];
 
         return view('consumeservers::index', [
             'limits' => $limits,
@@ -47,7 +65,17 @@ class ConsumeServersController extends Controller
             'metric' => $metric,
             'nodeId' => $nodeId,
             'topLimit' => $topLimit,
+            'generatedAt' => $generatedAt,
+            'stats' => $stats,
         ]);
+    }
+
+    public function toggle(ConsumeServerLimit $limit)
+    {
+        $limit->update(['enabled' => !$limit->enabled]);
+
+        return redirect()->route('admin.extensions.consumeservers.index')
+            ->with('success', 'Limite ' . ($limit->enabled ? 'activado' : 'desactivado') . '.');
     }
 
     public function store(Request $request)

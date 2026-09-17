@@ -20,5 +20,6 @@ Route::middleware(['web', 'auth', AdminAuthenticate::class])
         Route::get('/', [ConsumeServersController::class, 'index'])->name('index');
         Route::post('/', [ConsumeServersController::class, 'store'])->name('store');
         Route::put('/{limit}', [ConsumeServersController::class, 'update'])->name('update');
+        Route::patch('/{limit}/toggle', [ConsumeServersController::class, 'toggle'])->name('toggle');
         Route::delete('/{limit}', [ConsumeServersController::class, 'destroy'])->name('destroy');
     });
