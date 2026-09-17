@@ -140,6 +140,8 @@ class ConsumeServersController extends Controller
             $secondary = null;
         }
 
+        $players = $row['players'] ?? null;
+
         return [
             'position' => $index + 1,
             'server_id' => $server->id,
@@ -152,6 +154,9 @@ class ConsumeServersController extends Controller
             'secondary' => $secondary,
             'bar_percent' => $barPercent,
             'bar_class' => $barClass,
+            'is_minecraft' => (bool) ($row['is_minecraft'] ?? false),
+            'players_online' => $players['players_online'] ?? null,
+            'players_max' => $players['players_max'] ?? null,
             'view_url' => url('/admin/servers/view/' . $server->id),
             'power_url' => route('admin.extensions.consumeservers.servers.power', $server),
         ];

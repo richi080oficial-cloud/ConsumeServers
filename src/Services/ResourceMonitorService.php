@@ -3,6 +3,7 @@
 namespace Pterodactyl\Extensions\ConsumeServers\Services;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Repositories\Wings\DaemonServerRepository;
@@ -12,9 +13,16 @@ use Pterodactyl\Extensions\ConsumeServers\Models\ConsumeServerUsageLog;
 
 class ResourceMonitorService
 {
+    // Cuanto se guarda en cache la respuesta del ping de Minecraft. Va aparte
+    // del cache del ranking de consumo: no tiene sentido golpear el puerto
+    // del juego de cada servidor cada 3-4 segundos solo porque la pantalla
+    // se auto-refresca a esa velocidad.
+    protected const MINECRAFT_CACHE_TTL = 15;
+
     public function __construct(
         protected DaemonServerRepository $daemonServerRepository,
         protected SuspensionService $suspensionService,
+        protected MinecraftPingService $minecraftPing,
     ) {
     }
 
@@ -110,7 +118,7 @@ class ResourceMonitorService
      */
     public function topConsumers(string $metric, ?int $nodeId = null, int $limit = 25): array
     {
-        $query = Server::query()->with(['node', 'user']);
+        $query = Server::query()->with(['node', 'user', 'egg', 'allocation']);
 
         if ($nodeId) {
             $query->where('node_id', $nodeId);
@@ -142,12 +150,64 @@ class ResourceMonitorService
                 'value' => $value,
                 'cpu_limit' => $cpuLimit,
                 'cpu_relative' => $cpuRelative,
+                'is_minecraft' => $this->isMinecraftServer($server),
+                'players' => $this->isMinecraftServer($server) ? $this->minecraftPlayers($server) : null,
             ];
         }
 
         usort($results, fn ($a, $b) => $b['value'] <=> $a['value']);
 
         return array_slice($results, 0, $limit);
+    }
+
+    /**
+     * Detecta si un servidor es de Minecraft (Java Edition) mirando el egg,
+     * el nest al que pertenece y la imagen de Docker — sin depender de que
+     * el admin lo marque a mano. Cubre eggs comunes: Vanilla, Paper, Spigot,
+     * Purpur, Forge, Fabric, etc.
+     */
+    public function isMinecraftServer(Server $server): bool
+    {
+        $haystacks = [
+            $server->egg->name ?? '',
+            $server->egg->nest->name ?? '',
+            $server->image ?? '',
+        ];
+
+        foreach ($haystacks as $text) {
+            if (stripos((string) $text, 'minecraft') !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Jugadores conectados ahora mismo, leidos con el protocolo "Server
+     * List Ping" del propio juego (el mismo que usa el cliente para
+     * mostrar el servidor en la lista de multijugador). Devuelve null si
+     * el servidor esta apagado, no tiene el puerto de consulta abierto o
+     * no respondio a tiempo — no significa necesariamente un error.
+     *
+     * @return array{online: bool, players_online: int, players_max: int}|null
+     */
+    public function minecraftPlayers(Server $server): ?array
+    {
+        $allocation = $server->allocation;
+
+        if (!$allocation || !$allocation->ip || !$allocation->port) {
+            return null;
+        }
+
+        $host = $allocation->ip_alias ?: $allocation->ip;
+        $port = (int) $allocation->port;
+
+        return Cache::remember(
+            "consumeservers.mcping.{$server->id}",
+            self::MINECRAFT_CACHE_TTL,
+            fn () => $this->minecraftPing->ping($host, $port)
+        );
     }
 
     /**

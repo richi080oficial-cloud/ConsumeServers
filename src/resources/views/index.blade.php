@@ -180,6 +180,7 @@
                                 <th>Owner</th>
                                 <th>Nodo</th>
                                 <th style="width: 260px;">Consumo</th>
+                                <th style="width: 110px;"><i class="fa fa-gamepad"></i> Jugadores</th>
                                 <th style="width: 190px;"></th>
                             </tr>
                             </thead>
@@ -210,6 +211,19 @@
                                         @endif
                                     </td>
                                     <td class="text-muted">{{ $row['server']->node->name ?? 'N/A' }}</td>
+                                    <td class="cs-players">
+                                        @if (!($row['is_minecraft'] ?? false))
+                                            <span class="text-muted">—</span>
+                                        @elseif (($row['players'] ?? null) === null)
+                                            <span class="text-muted" title="Servidor de Minecraft pero no respondio al ping (apagado o puerto de consulta cerrado)">
+                                                <i class="fa fa-question-circle"></i> ?
+                                            </span>
+                                        @else
+                                            <span class="cs-players-badge" title="Jugadores conectados">
+                                                <i class="fa fa-user"></i> {{ $row['players']['players_online'] }}/{{ $row['players']['players_max'] }}
+                                            </span>
+                                        @endif
+                                    </td>
                                     <td class="cs-consumo">
                                         <strong><span class="cs-value">{{ $value }}</span> <span class="cs-unit">{{ Units::shortUnit($metric) }}</span></strong>
                                         @if ($secondary)
@@ -240,7 +254,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted">
+                                    <td colspan="7" class="text-center text-muted">
                                         <i class="fa fa-exclamation-triangle"></i>
                                         No se pudo leer el consumo de ningun servidor (revisa que Wings responda).
                                     </td>
